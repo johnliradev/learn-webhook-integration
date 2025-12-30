@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "dev": "concurrently \"pnpm run dev:frontend\" \"bun dev:backend\"",
+    "install": "cd frontend && pnpm install && cd ../backend && bun install",
+    "dev": "concurrently \"cd frontend && pnpm run dev\" \"cd backend && bun dev\"",
     "dev:frontend": "cd frontend && pnpm run dev",
     "dev:backend": "cd backend && bun dev"
   },
