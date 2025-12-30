@@ -1,7 +1,11 @@
+import { OrderForm } from "./components/order-form";
+import { Navbar } from "./components/navbar";
+
 export const App = () => {
   return (
     <div>
-      <p className="text-3xl font-bold underline">Hello World</p>
+      <Navbar />
+      <OrderForm />
     </div>
   );
 };
