@@ -21,7 +21,8 @@ export const createCheckoutSession = async (body: createCheckoutInput) => {
     ],
     customer_email: body.customerEmail,
     mode: "payment",
-    success_url: "http://localhost:5173/success",
+    success_url:
+      "http://localhost:5173/success?session_id={CHECKOUT_SESSION_ID}",
   });
   if (!session.url) {
     throw new Error("Failed to create checkout session URL");
