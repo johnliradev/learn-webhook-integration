@@ -6,8 +6,10 @@
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {
+    "@elysiajs/cors": "^1.4.1",
     "@elysiajs/openapi": "^1.4.13",
     "elysia": "latest",
+    "stripe": "^20.1.0",
     "zod": "^4.2.1"
   },
   "devDependencies": {
