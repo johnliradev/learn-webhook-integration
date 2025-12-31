@@ -1,41 +1,44 @@
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  User,
-  Mail,
-  Package,
-  DollarSign,
-  FileText,
-  Image as ImageIcon,
-} from "lucide-react";
+import { useState } from "react";
+import { Mail, Package, DollarSign, Image as ImageIcon } from "lucide-react";
 
+// Funções de formatação de preço (centavos ↔ R$)
+const formatPrice = (cents: number): string => {
+  const reais = cents / 100;
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(reais);
+};
+
+const parsePrice = (formatted: string): number => {
+  // Remove tudo exceto números
+  const numbers = formatted.replace(/\D/g, "");
+  return numbers ? parseInt(numbers, 10) : 0;
+};
+
+// Schema alinhado com o backend
 const formSchema = z.object({
-  customerName: z
-    .string()
-    .min(1, "Buyer name is required")
-    .min(2, "Buyer name must be at least 2 characters"),
   customerEmail: z
-    .email("Please enter a valid email address")
-    .min(1, "Email address is required"),
-  productName: z
     .string()
-    .min(1, "Product name is required")
-    .min(2, "Product name must be at least 2 characters"),
+    .min(1, "E-mail is required.")
+    .email("Invalid E-mail."),
+  productName: z.string().min(2, "Product name must have least 2 characters."),
   productPrice: z
-    .number({ message: "Price is required" })
-    .positive("Price must be greater than 0")
-    .min(0.01, "Price must be at least $0.01"),
-  productDescription: z
     .string()
-    .refine((val) => val.trim().length > 0, {
-      message: "Description is required",
-    })
-    .refine((val) => val.trim().length >= 10, {
-      message: "Description must be at least 10 characters",
-    }),
+    .min(1, "Product Price is required")
+    .refine(
+      (val) => {
+        const cents = parsePrice(val);
+        return cents >= 1;
+      },
+      { message: "Product Price must be Positive" }
+    ),
   imageUrl: z
     .string()
+    .max(2048, "Product can't have more than 2048 characters.")
     .optional()
     .refine((val) => !val || val === "" || z.url().safeParse(val).success, {
       message: "Please enter a valid URL",
@@ -43,21 +46,57 @@ const formSchema = z.object({
 });
 
 export const OrderForm = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     mode: "onBlur",
     reValidateMode: "onChange",
     defaultValues: {
-      customerName: "John Doe",
       customerEmail: "john@example.com",
       productName: "Premium Widget",
-      productPrice: 99.99,
-      productDescription: "",
-      imageUrl: "https://example.com/image.jpg",
+      productPrice: formatPrice(9999), // R$ 99,99 em centavos
+      imageUrl: "",
     },
   });
-  const onSubmit = (values: z.infer<typeof formSchema>) => {
-    console.log(values);
+
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Converte o preço formatado (R$) para centavos (número)
+      const priceInCents = parsePrice(values.productPrice);
+
+      const response = await fetch(
+        "http://localhost:3000/create-checkout-session",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            customerEmail: values.customerEmail,
+            productName: values.productName,
+            productPrice: priceInCents, // Já está em centavos
+            imageUrl: values.imageUrl || undefined,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to create checkout session");
+      }
+
+      const checkoutUrl = await response.text();
+      // Redireciona para a URL do checkout do Stripe
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -73,30 +112,11 @@ export const OrderForm = () => {
         </div>
 
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <div className="space-y-2">
-            <label
-              htmlFor="customerName"
-              className="flex items-center gap-2 text-gray-700 font-medium"
-            >
-              <User className="w-4 h-4" />
-              Buyer Name
-            </label>
-            <input
-              type="text"
-              id="customerName"
-              {...form.register("customerName")}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${
-                form.formState.errors.customerName
-                  ? "border-red-500 focus:ring-red-500"
-                  : "border-gray-300 focus:ring-blue-500"
-              }`}
-            />
-            {form.formState.errors.customerName && (
-              <p className="text-red-500 text-sm">
-                {form.formState.errors.customerName.message}
-              </p>
-            )}
-          </div>
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+              {error}
+            </div>
+          )}
 
           <div className="space-y-2">
             <label
@@ -154,13 +174,41 @@ export const OrderForm = () => {
               className="flex items-center gap-2 text-gray-700 font-medium"
             >
               <DollarSign className="w-4 h-4" />
-              Price (USD)
+              Price
             </label>
             <input
-              type="number"
+              type="text"
               id="productPrice"
-              step="0.01"
-              {...form.register("productPrice", { valueAsNumber: true })}
+              inputMode="numeric"
+              {...form.register("productPrice")}
+              onChange={(e) => {
+                const input = e.target.value;
+                // Remove tudo exceto números
+                const numbers = input.replace(/\D/g, "");
+
+                if (numbers === "") {
+                  form.setValue("productPrice", "");
+                  return;
+                }
+
+                // Converte para centavos e formata
+                const cents = parseInt(numbers, 10);
+                const formatted = formatPrice(cents);
+                form.setValue("productPrice", formatted, {
+                  shouldValidate: true,
+                });
+              }}
+              onBlur={(e) => {
+                const value = e.target.value;
+                if (value) {
+                  const cents = parsePrice(value);
+                  if (cents > 0) {
+                    form.setValue("productPrice", formatPrice(cents), {
+                      shouldValidate: true,
+                    });
+                  }
+                }
+              }}
               className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent ${
                 form.formState.errors.productPrice
                   ? "border-red-500 focus:ring-red-500"
@@ -170,32 +218,6 @@ export const OrderForm = () => {
             {form.formState.errors.productPrice && (
               <p className="text-red-500 text-sm">
                 {form.formState.errors.productPrice.message}
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label
-              htmlFor="productDescription"
-              className="flex items-center gap-2 text-gray-700 font-medium"
-            >
-              <FileText className="w-4 h-4" />
-              Description
-            </label>
-            <textarea
-              id="productDescription"
-              {...form.register("productDescription")}
-              rows={3}
-              placeholder="Enter product description..."
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent resize-y ${
-                form.formState.errors.productDescription
-                  ? "border-red-500 focus:ring-red-500"
-                  : "border-gray-300 focus:ring-blue-500"
-              }`}
-            />
-            {form.formState.errors.productDescription && (
-              <p className="text-red-500 text-sm">
-                {form.formState.errors.productDescription.message}
               </p>
             )}
           </div>
@@ -230,9 +252,10 @@ export const OrderForm = () => {
 
           <button
             type="submit"
-            className="cursor-pointer w-full bg-purple-500 hover:bg-purple-600 text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200 text-base"
+            disabled={isLoading}
+            className="cursor-pointer w-full bg-purple-500 hover:bg-purple-600 disabled:bg-purple-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-200 text-base"
           >
-            Proceed to Checkout
+            {isLoading ? "Processing..." : "Proceed to Checkout"}
           </button>
         </form>
       </div>
